@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Phishing Awareness Mail Simulator</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    body {
+      background-color: #f8f9fa;
+    }
+    .mail-list {
+      border-right: 1px solid #ccc;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    .mail-item:hover {
+      background-color: #eef3fc;
+      cursor: pointer;
+    }
+    .mail-view {
+      padding: 20px;
+    }
+    .alert {
+      font-size: 18px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar / Inbox -->
+    <div class="col-md-3 mail-list bg-white p-3">
+      <h4 class="mb-3 text-primary">📧 Inbox</h4>
+      {% for m in emails %}
+      <div class="mail-item p-2 border-bottom" onclick="openMail({{ loop.index0 }})">
+        <strong>{{ m.sender }}</strong><br>
+        <small>{{ m.subject }}</small><br>
+        <span class="text-muted">{{ m.time }}</span>
+      </div>
+      {% endfor %}
+      <div class="mt-4">
+        <h6>Attempts: <span id="attempts">{{ attempts }}</span></h6>
+        <h6>Score: <span id="score">{{ score }}</span></h6>
+      </div>
+    </div>
+
+    <!-- Mail viewer -->
+    <div class="col-md-9 mail-view">
+      <div id="mailCard" style="display:none;">
+        <h5 id="mailSender" class="text-secondary"></h5>
+        <h4 id="mailSubject" class="text-dark"></h4>
+        <p id="mailBody" class="border p-3 bg-white"></p>
+
+        <div class="mt-3">
+          <button class="btn btn-success" id="verifyBtn">✅ Verify</button>
+          <button class="btn btn-warning" id="clickBtn">⚠️ Click Link (Test Reaction)</button>
+        </div>
+
+        <div id="banner" class="mt-4"></div>
+        <div id="resultBox" class="mt-3"></div>
+
+        <div id="chartContainer" style="display:none; margin-top:20px;">
+          <canvas id="confidenceChart" width="400" height="200"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  console.log("✅ Page fully loaded");
+  let currentIndex = -1;
+  let chart;
+
+  // Open email from sidebar
+  window.openMail = function(index) {
+    const mails = {{ emails|tojson }};
+    currentIndex = index;
+    const mail = mails[index];
+
+    document.getElementById("mailCard").style.display = "block";
+    document.getElementById("mailSender").innerText = mail.sender;
+    document.getElementById("mailSubject").innerText = mail.subject;
+    document.getElementById("mailBody").innerText = mail.body;
+
+    document.getElementById("banner").innerHTML = "";
+    document.getElementById("resultBox").innerHTML = "";
+    document.getElementById("chartContainer").style.display = "none";
+
+    console.log("📨 Opened email index:", currentIndex);
+  };
+
+  // Handle verify button
+  document.getElementById("verifyBtn").addEventListener("click", async () => {
+    console.log("🔍 Verify clicked!");
+    if (currentIndex === -1) {
+      alert("Please open an email first!");
+      return;
+    }
+
+    const form = new FormData();
+    form.append("index", currentIndex);
+
+    try {
+      const res = await axios.post("/verify", form);
+      const d = res.data;
+      console.log("✅ Response from /verify:", d);
+
+      // Banner verdict
+      const banner = document.getElementById("banner");
+      banner.innerHTML = `<div class="alert ${d.predicted === 'phishing' ? 'alert-danger' : 'alert-success'} text-center">
+          THIS EMAIL IS <b>${d.predicted.toUpperCase()}</b>
+      </div>`;
+
+      // Proof + Message
+      let proofHtml = "";
+      for (let [model, val] of Object.entries(d.proof)) {
+        proofHtml += `<li>${model}: <b>${val}</b></li>`;
+      }
+
+      document.getElementById("resultBox").innerHTML = `
+          <div>${d.message}</div>
+          <hr>
+          <b>Predicted:</b> ${d.predicted}<br>
+          <b>Actual:</b> ${d.true_label}<br><br>
+          <b>Model Confidence Scores:</b>
+          <ul>${proofHtml}</ul>`;
+
+      // Update scores
+      document.getElementById("score").innerText = d.score;
+      document.getElementById("attempts").innerText = d.attempts;
+
+      // Chart.js visualization
+      const ctx = document.getElementById("confidenceChart");
+      const data = {
+        labels: Object.keys(d.proof),
+        datasets: [{
+          label: "Confidence Level",
+          data: Object.values(d.proof),
+          backgroundColor: ["#ef4444", "#3b82f6"]
+        }]
+      };
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: "bar",
+        data: data,
+        options: { scales: { y: { beginAtZero: true, max: 1 } } }
+      });
+      document.getElementById("chartContainer").style.display = "block";
+
+    } catch (err) {
+      console.error("❌ Error verifying email:", err);
+      alert("Verification failed. Check console for details.");
+    }
+  });
+
+  // Handle fake link click
+  document.getElementById("clickBtn").addEventListener("click", async () => {
+    console.log("⚠️ Click link test triggered!");
+    if (currentIndex === -1) {
+      alert("Please open an email first!");
+      return;
+    }
+
+    const form = new FormData();
+    form.append("index", currentIndex);
+    const res = await axios.post("/clicked_link", form);
+    alert(res.data.message);
+    document.getElementById("score").innerText = res.data.score;
+    document.getElementById("attempts").innerText = res.data.attempts;
+  });
+});
+</script>
+
+</body>
+</html>
