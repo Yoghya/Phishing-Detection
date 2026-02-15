@@ -112,3 +112,4 @@ if __name__ == "__main__":
         run_anova(metric)
     grouped_bar_plot(df)
     print("\n🎯 All plots and statistics saved successfully.")
+
